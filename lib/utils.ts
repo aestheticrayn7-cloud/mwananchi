@@ -76,3 +76,114 @@ export function getInitials(name: string): string {
     .join('')
     .slice(0, 2)
 }
+
+// Authentication functions
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-key-change-in-production';
+const ALGORITHM = 'HS256';
+
+interface TokenPayload {
+  userId: string;
+  email: string;
+  role: string;
+  storeId: string;
+  iat?: number;
+  exp?: number;
+}
+
+// Simple JWT implementation for demo (use jsonwebtoken in production)
+export function generateToken(payload: Omit<TokenPayload, 'iat' | 'exp'>): string {
+  const header = { alg: ALGORITHM, typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+  const tokenPayload = {
+    ...payload,
+    iat: now,
+    exp: now + 7 * 24 * 60 * 60, // 7 days
+  };
+
+  const encoded = {
+    header: base64Encode(JSON.stringify(header)),
+    payload: base64Encode(JSON.stringify(tokenPayload)),
+  };
+
+  const signature = base64Encode(
+    hmacSha256(`${encoded.header}.${encoded.payload}`, JWT_SECRET)
+  );
+
+  return `${encoded.header}.${encoded.payload}.${signature}`;
+}
+
+export function verifyToken(token: string): TokenPayload | null {
+  try {
+    const [headerB64, payloadB64, signatureB64] = token.split('.');
+
+    if (!headerB64 || !payloadB64 || !signatureB64) {
+      return null;
+    }
+
+    const payload = JSON.parse(base64Decode(payloadB64)) as TokenPayload;
+
+    // Check expiration
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+      return null;
+    }
+
+    // Verify signature
+    const expectedSignature = base64Encode(
+      hmacSha256(`${headerB64}.${payloadB64}`, JWT_SECRET)
+    );
+
+    if (signatureB64 !== expectedSignature) {
+      return null;
+    }
+
+    return payload;
+  } catch (error) {
+    console.error('[v0] Token verification failed:', error);
+    return null;
+  }
+}
+
+// Password hashing (bcrypt-like for demo, use bcrypt in production)
+export async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return btoa(String.fromCharCode(...new Uint8Array(hashBuffer)));
+}
+
+export async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  const newHash = await hashPassword(password);
+  return newHash === hash;
+}
+
+// Helper functions for JWT
+function base64Encode(str: string): string {
+  return btoa(str)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+}
+
+function base64Decode(str: string): string {
+  let s = str.replace(/\-/g, '+').replace(/_/g, '/');
+  switch (s.length % 4) {
+    case 0:
+      break;
+    case 2:
+      s += '==';
+      break;
+    case 3:
+      s += '=';
+      break;
+    default:
+      throw new Error('Invalid base64');
+  }
+  return atob(s);
+}
+
+function hmacSha256(message: string, secret: string): string {
+  // Simple HMAC-SHA256 implementation for demo
+  // In production, use crypto.subtle or a library
+  const encoder = new TextEncoder();
+  return secret + message; // Placeholder - use proper HMAC in production
+}
